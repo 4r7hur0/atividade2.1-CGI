@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 
 app = Flask(__name__)
@@ -75,6 +75,56 @@ def _clean_author(value: str) -> str:
 def _clean_message(value: str) -> str:
     # Preserve newlines for display; just normalize Windows line endings.
     return value.replace("\r\n", "\n").strip()
+
+
+def _error_json(message: str, status_code: int):
+    return jsonify({"ok": False, "error": message}), status_code
+
+
+@app.get("/api/messages")
+def api_messages_get():
+    posts = _read_posts()
+    return jsonify(
+        {
+            "ok": True,
+            "messages": [
+                {"author": p.author, "message": p.message, "created_at": p.created_at} for p in posts
+            ],
+        }
+    )
+
+
+@app.post("/api/messages")
+def api_messages_post():
+    payload = request.get_json(silent=True) or {}
+
+    action = str(payload.get("action") or "").strip()
+    author = _clean_author(str(payload.get("author") or ""))
+    message = _clean_message(str(payload.get("message") or ""))
+
+    if not action:
+        return _error_json("Campo 'action' é obrigatório.", 400)
+
+    if not author or not message:
+        return _error_json("Campos 'author' e 'message' são obrigatórios.", 400)
+
+    if len(author) > 60:
+        return _error_json("Autor deve ter no máximo 60 caracteres.", 400)
+
+    if len(message) > 1000:
+        return _error_json("Mensagem deve ter no máximo 1000 caracteres.", 400)
+
+    _append_post(author, message)
+    return (
+        jsonify(
+            {
+                "ok": True,
+                "action": action,
+                "saved": {"author": author, "message": message},
+            }
+        ),
+        201,
+    )
 
 
 @app.get("/")
